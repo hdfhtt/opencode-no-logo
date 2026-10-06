@@ -12,6 +12,9 @@ $tuiPath = Join-Path $cfg "tui.json"
 $pluginFile = Join-Path $plugins "no-home-logo.ts"
 if (Test-Path $pluginFile) { Remove-Item -Force $pluginFile }
 
+$motdFile = Join-Path $cfg "motd.txt"
+if (Test-Path $motdFile) { Remove-Item -Force $motdFile }
+
 if (-not (Test-Path $tuiPath)) {
   Write-Host "OpenCode logo restored. Restart opencode to apply."
   return

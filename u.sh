@@ -9,6 +9,7 @@ ENTRY="./plugins/no-home-logo.ts"
 TUI="$CFG/tui.json"
 
 rm -f "$CFG/plugins/no-home-logo.ts"
+rm -f "$CFG/motd.txt"
 
 if [ ! -f "$TUI" ]; then
   echo "OpenCode logo restored. Restart opencode to apply."
