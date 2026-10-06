@@ -54,6 +54,24 @@ Both installers are idempotent and write to your opencode config directory
 
 ## Uninstall
 
+**Windows (PowerShell):**
+
+```powershell
+irm https://github.com/hdfhtt/opencode-no-logo/raw/main/u.ps1 | iex
+```
+
+**Linux / macOS:**
+
+```sh
+curl -fsSL https://github.com/hdfhtt/opencode-no-logo/raw/main/u.sh | bash
+```
+
+Both uninstallers delete `plugins/no-home-logo.ts` and remove its entry from the
+`plugin` array in `tui.json` (dropping the `plugin` key if it was the only
+entry). Then **restart opencode**.
+
+Or remove manually:
+
 1. Delete `~/.config/opencode/plugins/no-home-logo.ts`.
 2. Remove `"./plugins/no-home-logo.ts"` from the `plugin` array in
    `~/.config/opencode/tui.json` (delete the file if that was its only entry).
