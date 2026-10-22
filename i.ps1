@@ -4,8 +4,10 @@
 # opencode 1.x: installs a TUI plugin that takes over the `home_logo` slot.
 # opencode 2.x: that slot was removed, so instead the installer applies a tiny,
 #   reversible, length-preserving patch to the opencode binary that makes the
-#   home wordmark never render. Re-run after updating opencode (updates replace
-#   the binary).
+#   home wordmark never render. opencode updates replace the binary, so re-run
+#   this after updating. (The Linux/macOS installer additionally sets up a plugin
+#   that re-applies the patch automatically; on Windows a running binary cannot
+#   be replaced in place, so re-running the installer is the supported path.)
 # Usage: irm https://github.com/hdfhtt/opencode-no-logo/raw/main/i.ps1 | iex
 $ErrorActionPreference = "Stop"
 

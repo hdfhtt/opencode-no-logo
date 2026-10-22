@@ -5,8 +5,9 @@
 # opencode 1.x: installs a TUI plugin that takes over the `home_logo` slot.
 # opencode 2.x: that slot was removed, so instead the installer applies a tiny,
 #   reversible, length-preserving patch to the opencode binary that makes the
-#   home wordmark never render. Re-run after updating opencode (updates replace
-#   the binary).
+#   home wordmark never render. It also installs a small server plugin that
+#   re-applies the patch automatically after opencode updates replace the
+#   binary (see plugins/no-logo-sync.ts), so you do not have to re-run this.
 # Usage: curl -fsSL https://github.com/hdfhtt/opencode-no-logo/raw/main/i.sh | bash
 set -e
 
@@ -22,18 +23,69 @@ VER=""
 MAJOR="${VER%%.*}"
 
 if [ -n "$MAJOR" ] && [ "$MAJOR" -ge 2 ] 2>/dev/null; then
-  echo "opencode v$VER detected (2.x: patching the binary)."
+  echo "opencode v$VER detected (2.x: patching the binary + installing auto-reapply plugin)."
   if ! command -v python3 >/dev/null 2>&1; then
     echo "python3 is required to patch opencode 2.x but was not found." >&2
     exit 1
   fi
-  python3 - "$OC" "$CFG" "$ENTRY" "$TUI" <<'PY'
+
+  # Self-healing server plugin: on each launch it checks the running binary and
+  # re-applies the patch if an opencode update replaced it with a fresh one. It
+  # only ever touches a binary that still contains the exact marker, and does
+  # nothing otherwise, so it is safe across future builds. The re-patch lands on
+  # the next launch (a running binary cannot rewrite itself in place).
+  mkdir -p "$CFG/plugins"
+  cat > "$CFG/plugins/no-logo-sync.ts" <<'EOF'
+export default {
+  id: "no-logo-sync",
+  setup: async () => {
+    const fs = await import("node:fs").catch(() => null)
+    const os = await import("node:os").catch(() => null)
+    const path = await import("node:path").catch(() => null)
+    if (!fs || !os || !path) return
+    const OLD = "n().height<12"
+    const NEW = "n().height>-1"
+    let bin = process.execPath
+    try { bin = fs.realpathSync(bin) } catch {}
+    const cfg = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
+    const stampFile = path.join(cfg, "opencode", ".no-logo-stamp")
+    let tmp
+    try {
+      const st = fs.statSync(bin)
+      const stamp = st.size + ":" + Math.floor(st.mtimeMs)
+      try { if (fs.readFileSync(stampFile, "utf8").trim() === stamp) return } catch {}
+      const buf = fs.readFileSync(bin)
+      const idx = buf.indexOf(OLD)
+      // Patch only when the marker is present and unique, so a changed build is a
+      // safe no-op rather than a mis-patch.
+      if (idx !== -1 && buf.indexOf(OLD, idx + OLD.length) === -1) {
+        buf.write(NEW, idx, "latin1")
+        tmp = path.join(path.dirname(bin), ".opencode-nologo." + process.pid + ".tmp")
+        fs.writeFileSync(tmp, buf)
+        try { fs.chmodSync(tmp, st.mode) } catch {}
+        fs.renameSync(tmp, bin)
+        tmp = undefined
+      }
+      const s2 = fs.statSync(bin)
+      fs.mkdirSync(path.dirname(stampFile), { recursive: true })
+      fs.writeFileSync(stampFile, s2.size + ":" + Math.floor(s2.mtimeMs))
+    } catch {
+    } finally {
+      if (tmp) { try { fs.unlinkSync(tmp) } catch {} }
+    }
+  },
+}
+EOF
+
+  python3 -I - "$OC" "$CFG" "$ENTRY" "$TUI" <<'PY'
 import json, os, sys
 oc, cfg, entry, tui = sys.argv[1:5]
 
-# 1) Patch the binary: the home logo renders nothing when height<12; flipping
-#    the comparison to the always-true ">-1" hides it at every size. Same byte
-#    length, so the Bun standalone layout stays valid.
+# 1) Patch the binary now (so it takes effect on the next restart without waiting
+#    for the plugin's launch cycle). The home logo renders nothing when height<12;
+#    flipping the comparison to the always-true ">-1" hides it at every size. Same
+#    byte length, so the Bun standalone layout stays valid. Written via a temp file
+#    and atomic replace, so it works even while opencode is running.
 path = os.path.realpath(oc)
 OLD, NEW = b"n().height<12", b"n().height>-1"
 try:
@@ -43,10 +95,17 @@ except OSError as e:
 no, nn = data.count(OLD), data.count(NEW)
 if no == 1:
     i = data.find(OLD)
+    patched = data[:i] + NEW + data[i + len(OLD):]
+    d = os.path.dirname(path)
+    tmp = os.path.join(d, ".opencode-nologo.%d.tmp" % os.getpid())
     try:
-        with open(path, "r+b") as f:
-            f.seek(i); f.write(NEW)
+        with open(tmp, "wb") as f:
+            f.write(patched)
+        os.chmod(tmp, os.stat(path).st_mode)
+        os.replace(tmp, path)
     except OSError as e:
+        try: os.remove(tmp)
+        except OSError: pass
         sys.stderr.write("opencode-no-logo: cannot write %s: %s\n" % (path, e)); sys.exit(1)
     print("Removed the opencode home wordmark (%s)." % path)
 elif no == 0 and nn >= 1:
@@ -73,7 +132,7 @@ if os.path.exists(pf):
             json.dump(d, open(tui, "w"), indent=2)
     print("Removed a leftover v1 plugin; its startup error will stop.")
 PY
-  echo "Restart opencode to apply. Re-run this installer after updating opencode."
+  echo "Restart opencode to apply. The patch re-applies automatically after opencode updates."
   exit 0
 fi
 
@@ -94,7 +153,7 @@ export default {
 EOF
 
 if command -v python3 >/dev/null 2>&1; then
-  python3 - "$TUI" "$ENTRY" <<'PY'
+  python3 -I - "$TUI" "$ENTRY" <<'PY'
 import json, os, sys
 p, e = sys.argv[1], sys.argv[2]
 d = {}

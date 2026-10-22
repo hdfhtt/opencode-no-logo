@@ -38,6 +38,12 @@ if ($oc) {
   }
 }
 
+# Remove the auto-reapply plugin and its stamp (if a shared config carried them).
+$syncFile = Join-Path $plugins "no-logo-sync.ts"
+if (Test-Path $syncFile) { Remove-Item -Force $syncFile }
+$stampFile = Join-Path $cfg ".no-logo-stamp"
+if (Test-Path $stampFile) { Remove-Item -Force $stampFile }
+
 # Remove the 1.x plugin, its tui.json entry, and any leftover motd.txt.
 $pluginFile = Join-Path $plugins "no-home-logo.ts"
 if (Test-Path $pluginFile) { Remove-Item -Force $pluginFile }
