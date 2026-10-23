@@ -1,83 +1,86 @@
 #!/usr/bin/env sh
 # opencode-no-logo uninstaller (Linux/macOS)
 # Restores the OpenCode wordmark.
-#   opencode 1.x: removes the plugin it installed.
-#   opencode 2.x: removes the auto-reapply plugin and reverts the binary patch.
+#   opencode 1.x: removes the TUI plugin it installed.
+#   opencode 2.x: removes the renderer plugin and its cli.json registration.
+# Also cleans up anything left by older versions of this tool (an inert binary
+# patch, the server sync plugin, and its stamp).
 # Usage: curl -fsSL https://github.com/hdfhtt/opencode-no-logo/raw/main/u.sh | bash
 set -e
 
 CFG="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
 ENTRY="./plugins/no-home-logo.ts"
 TUI="$CFG/tui.json"
+CLI="$CFG/cli.json"
+PKGDIR="$CFG/no-home-logo"
 
 OC="$(command -v opencode 2>/dev/null || true)"
 [ -z "$OC" ] && [ -x "$HOME/.opencode/bin/opencode" ] && OC="$HOME/.opencode/bin/opencode"
 
 if command -v python3 >/dev/null 2>&1; then
-  python3 -I - "$OC" "$CFG" "$ENTRY" "$TUI" <<'PY'
-import json, os, sys
-oc, cfg, entry, tui = sys.argv[1:5]
+  python3 -I - "$CFG" "$PKGDIR" "$CLI" "$TUI" "$OC" "$ENTRY" <<'PY'
+import json, os, shutil, sys
+cfg, pkgdir, cli, tui, oc, entry = sys.argv[1:7]
 
-# 1) Remove the auto-reapply plugin and its stamp FIRST, so it cannot re-patch
-#    the binary on the next launch after we revert it below.
-for f in (os.path.join(cfg, "plugins", "no-logo-sync.ts"),
-          os.path.join(cfg, ".no-logo-stamp")):
+def load(p):
     try:
-        os.remove(f)
-    except OSError:
-        pass
+        with open(p) as f: return json.load(f)
+    except Exception:
+        return None
 
-# 2) Revert the binary patch if present (no-op otherwise), via atomic replace.
+# 1) Remove the 2.x renderer plugin registration from cli.json, and the package.
+d = load(cli)
+if isinstance(d, dict) and isinstance(d.get("plugins"), list):
+    d["plugins"] = [x for x in d["plugins"] if x != pkgdir]
+    if not d["plugins"]: d.pop("plugins", None)
+    with open(cli, "w") as f: json.dump(d, f, indent=2)
+try: shutil.rmtree(pkgdir)
+except OSError: pass
+
+# 2) Revert an inert binary patch left by older versions (no-op otherwise).
 if oc:
     path = os.path.realpath(oc)
-    PATCHED, ORIG = b"n().height>-1", b"n().height<12"
     try:
         data = open(path, "rb").read()
     except OSError:
         data = None
-    if data is not None and data.count(PATCHED) == 1 and data.count(ORIG) == 0:
-        i = data.find(PATCHED)
-        reverted = data[:i] + ORIG + data[i + len(PATCHED):]
-        d = os.path.dirname(path)
-        tmp = os.path.join(d, ".opencode-nologo.%d.tmp" % os.getpid())
+    if data is not None and data.count(b"n().height>-1") == 1 and data.count(b"n().height<12") == 0:
+        rev = data.replace(b"n().height>-1", b"n().height<12")
+        dirn = os.path.dirname(path)
+        tmp = os.path.join(dirn, ".opencode-nologo.%d.tmp" % os.getpid())
         try:
-            with open(tmp, "wb") as f:
-                f.write(reverted)
+            with open(tmp, "wb") as f: f.write(rev)
             os.chmod(tmp, os.stat(path).st_mode)
             os.replace(tmp, path)
-            print("Reverted the opencode binary patch (%s)." % path)
-        except OSError as e:
+            print("Reverted the opencode binary patch.")
+        except OSError:
             try: os.remove(tmp)
             except OSError: pass
-            sys.stderr.write("opencode-no-logo: cannot write %s: %s\n" % (path, e))
 
-# 3) Remove the 1.x plugin, its tui.json entry, and any leftover motd.txt.
-pf = os.path.join(cfg, "plugins", "no-home-logo.ts")
-if os.path.exists(pf):
-    os.remove(pf)
-motd = os.path.join(cfg, "motd.txt")
-if os.path.exists(motd):
-    os.remove(motd)
-if os.path.exists(tui):
-    try:
-        d = json.load(open(tui))
-    except Exception:
-        d = None
-    if isinstance(d, dict) and isinstance(d.get("plugin"), list):
-        d["plugin"] = [x for x in d["plugin"] if x != entry]
-        if not d["plugin"]:
-            d.pop("plugin", None)
-        json.dump(d, open(tui, "w"), indent=2)
+# 3) Remove the 1.x plugin, old server sync plugin, stamp, motd, and tui entry.
+for f in (os.path.join(cfg, "plugins", "no-home-logo.ts"),
+          os.path.join(cfg, "plugins", "no-logo-sync.ts"),
+          os.path.join(cfg, ".no-logo-stamp"),
+          os.path.join(cfg, "motd.txt")):
+    try: os.remove(f)
+    except OSError: pass
+t = load(tui)
+if isinstance(t, dict) and isinstance(t.get("plugin"), list):
+    t["plugin"] = [x for x in t["plugin"] if x != entry]
+    if not t["plugin"]: t.pop("plugin", None)
+    with open(tui, "w") as f: json.dump(t, f, indent=2)
 PY
 else
-  # Fallback without python3: plugin/tui cleanup only; a 2.x binary patch cannot be reverted here.
-  rm -f "$CFG/plugins/no-logo-sync.ts" "$CFG/.no-logo-stamp"
-  rm -f "$CFG/plugins/no-home-logo.ts" "$CFG/motd.txt"
-  if [ -f "$TUI" ] && command -v jq >/dev/null 2>&1; then
-    tmp="$(mktemp)"
-    jq --arg e "$ENTRY" 'if (.plugin | type) == "array" then (.plugin |= map(select(. != $e)) | if (.plugin | length) == 0 then del(.plugin) else . end) else . end' "$TUI" > "$tmp" && mv "$tmp" "$TUI"
+  # Fallback without python3: file cleanup only. A cli.json plugins entry or an
+  # inert 2.x binary patch must be undone by hand or by reinstalling opencode.
+  rm -rf "$PKGDIR"
+  rm -f "$CFG/plugins/no-home-logo.ts" "$CFG/plugins/no-logo-sync.ts" "$CFG/.no-logo-stamp" "$CFG/motd.txt"
+  if command -v jq >/dev/null 2>&1; then
+    [ -f "$CLI" ] && { tmp="$(mktemp)"; jq --arg p "$PKGDIR" 'if (.plugins|type)=="array" then (.plugins |= map(select(. != $p)) | if (.plugins|length)==0 then del(.plugins) else . end) else . end' "$CLI" > "$tmp" && mv "$tmp" "$CLI"; }
+    [ -f "$TUI" ] && { tmp="$(mktemp)"; jq --arg e "$ENTRY" 'if (.plugin|type)=="array" then (.plugin |= map(select(. != $e)) | if (.plugin|length)==0 then del(.plugin) else . end) else . end' "$TUI" > "$tmp" && mv "$tmp" "$TUI"; }
+  else
+    echo "Note: python3/jq not found; remove \"$PKGDIR\" from the \"plugins\" array in $CLI by hand."
   fi
-  echo "Note: python3 not found; if you are on opencode 2.x, reinstall opencode to restore the logo."
 fi
 
 echo "OpenCode logo restored. Restart opencode to apply."
