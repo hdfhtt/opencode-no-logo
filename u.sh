@@ -57,8 +57,11 @@ if oc:
             try: os.remove(tmp)
             except OSError: pass
 
-# 3) Remove the 1.x plugin, old server sync plugin, stamp, motd, and tui entry.
+# 3) Remove the 1.x plugin (and its custom-text font/text), old server sync
+#    plugin, stamp, motd, and tui entry.
 for f in (os.path.join(cfg, "plugins", "no-home-logo.ts"),
+          os.path.join(cfg, "plugins", "font.json"),
+          os.path.join(cfg, "plugins", "text.txt"),
           os.path.join(cfg, "plugins", "no-logo-sync.ts"),
           os.path.join(cfg, ".no-logo-stamp"),
           os.path.join(cfg, "motd.txt")):
@@ -74,7 +77,7 @@ else
   # Fallback without python3: file cleanup only. A cli.json plugins entry or an
   # inert 2.x binary patch must be undone by hand or by reinstalling opencode.
   rm -rf "$PKGDIR"
-  rm -f "$CFG/plugins/no-home-logo.ts" "$CFG/plugins/no-logo-sync.ts" "$CFG/.no-logo-stamp" "$CFG/motd.txt"
+  rm -f "$CFG/plugins/no-home-logo.ts" "$CFG/plugins/font.json" "$CFG/plugins/text.txt" "$CFG/plugins/no-logo-sync.ts" "$CFG/.no-logo-stamp" "$CFG/motd.txt"
   if command -v jq >/dev/null 2>&1; then
     [ -f "$CLI" ] && { tmp="$(mktemp)"; jq --arg p "$PKGDIR" 'if (.plugins|type)=="array" then (.plugins |= map(select(. != $p)) | if (.plugins|length)==0 then del(.plugins) else . end) else . end' "$CLI" > "$tmp" && mv "$tmp" "$CLI"; }
     [ -f "$TUI" ] && { tmp="$(mktemp)"; jq --arg e "$ENTRY" 'if (.plugin|type)=="array" then (.plugin |= map(select(. != $e)) | if (.plugin|length)==0 then del(.plugin) else . end) else . end' "$TUI" > "$tmp" && mv "$tmp" "$TUI"; }

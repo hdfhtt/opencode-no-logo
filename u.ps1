@@ -51,8 +51,9 @@ if ($oc) {
   }
 }
 
-# Remove the 1.x plugin, old server sync plugin, stamp, motd, and tui entry.
-foreach ($f in @((Join-Path $plugins "no-home-logo.ts"), (Join-Path $plugins "no-logo-sync.ts"), (Join-Path $cfg ".no-logo-stamp"), (Join-Path $cfg "motd.txt"))) {
+# Remove the 1.x plugin (and its custom-text font/text), old server sync plugin,
+# stamp, motd, and tui entry.
+foreach ($f in @((Join-Path $plugins "no-home-logo.ts"), (Join-Path $plugins "font.json"), (Join-Path $plugins "text.txt"), (Join-Path $plugins "no-logo-sync.ts"), (Join-Path $cfg ".no-logo-stamp"), (Join-Path $cfg "motd.txt"))) {
   if (Test-Path $f) { Remove-Item -Force $f }
 }
 if (Test-Path $tuiPath) {
